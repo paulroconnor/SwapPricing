@@ -13,7 +13,6 @@ def isleapyear(year):
     else:
         return False
 
-
 def yeartime(end, start, convention):
 
     d1, m1, y1 = [start.day, start.month, start.year]
@@ -85,6 +84,21 @@ def nelsonsiegelsvensson(t, beta0, beta1, beta2, beta3, lambda0, lambda1):
     term3 = (1 - np.exp(-t / lambda1)) / (t / lambda1) - np.exp(-t / lambda1)
     return beta0 + beta1 * term1 + beta2 * term2 + beta3 * term3
 
+def discountfactor(spot, time, compounding):
+    if compounding == 'Continous':
+        return np.exp(-spot * time)
+    else:
+        compoundmapping = {'Monthly':1,'Quarterly':4,'Semi-Annual':2,'Annual':1}
+        m = compoundmapping[compounding]
+        return (1 + spot / m) ** (-time * m)
+
+def forwardrate(spot1, spot2, time1, time2, compounding):
+    if compounding == 'Continous':
+        return (spot2 * time2 - spot1 * time1) / (time2 - time1)
+    else:
+        compoundmapping = {'Monthly':1,'Quarterly':4,'Semi-Annual':2,'Annual':1}
+        m = compoundmapping[compounding]
+        return (m * (((1 + spot2 / m) ** time2) / ((1 + spot1 / m) ** time1)) ** (1 / (time2 - time1))) - m
 
 class Swap:
 
