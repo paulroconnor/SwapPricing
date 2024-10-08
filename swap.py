@@ -1,6 +1,8 @@
 import pandas as pd
+import numpy as np
 from datetime import datetime
 import ustreasurycurve as ustc
+from scipy.optimize import curve_fit
 
 
 def isleapyear(year):
@@ -71,7 +73,17 @@ def yeartime(end, start, convention):
     elif convention == 'Actual/364':
         return (end - start).days / 364
     
-
+def nelsonsiegelsvensson(t, beta0, beta1, beta2, beta3, lambda0, lambda1):
+    # beta0: Long-Term Level of Yields
+    # beta1: Short-Term Component
+    # beta2: Medium-Term Hump or Curvature
+    # beta3: Extra Flexibility for Long-Term Component
+    # lambda0: Decay Factor for beta1 and beta2
+    # lambda1: Decay Factor for beta3
+    term1 = (1 - np.exp(-t / lambda0)) / (t / lambda0)
+    term2 = term1 - np.exp(-t / lambda0)
+    term3 = (1 - np.exp(-t / lambda1)) / (t / lambda1) - np.exp(-t / lambda1)
+    return beta0 + beta1 * term1 + beta2 * term2 + beta3 * term3
 
 
 class Swap:
@@ -91,9 +103,14 @@ class Swap:
         period = pd.period_range(end = self.maturity, periods = 1000, freq = frequencymapping[self.frequency])
         return [setdate(date) for date in period if setdate(date) > self.valuation]
     
-    def yieldcurve(self):
+    def termstructure(self):
         tenormapping = {'1m':1/12,'2m':1/6,'3m':0.25,'6m':0.5,'1y':1,'2y':2,'3y':3,'5y':5,'10y':10,'20y':20,'30y':30}
         ts = ustc.nominalRates(date_start = self.valuation, date_end = self.valuation)
         ts = ts.iloc[:,1:].melt(var_name = 'tenor', value_name = 'rate')
         ts['time'] = [tenormapping[tenor] for tenor in ts['tenor']]
         return ts[['tenor','time','rate']]
+
+    def nssparameters(self, initial = [0.01, 0, 0, 0.01, 2.0, 5.0]):
+        ts = self.termstructure()
+        return curve_fit(nelsonsiegelsvensson, ts['time'], ts['rate'], p0 = initial)[0]
+        
