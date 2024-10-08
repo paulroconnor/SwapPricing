@@ -28,5 +28,4 @@ class Swap:
 
 
 
-# check = Swap(notional = 100, fixed = 0.05, floating = 0.05, maturity = '2020-12-11', frequency = 'Semi-Annual', daycount = '30/360', valuation = '2015-03-17')
-# print(check.yieldcurve())
+#   
