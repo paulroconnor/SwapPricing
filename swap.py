@@ -85,7 +85,7 @@ def nelsonsiegelsvensson(t, beta0, beta1, beta2, beta3, lambda0, lambda1):
     return beta0 + beta1 * term1 + beta2 * term2 + beta3 * term3
 
 def discountfactor(spot, time, compounding):
-    if compounding == 'Continous':
+    if compounding == 'Continuous':
         return np.exp(-spot * time)
     else:
         compoundmapping = {'Monthly':1,'Quarterly':4,'Semi-Annual':2,'Annual':1}
@@ -93,7 +93,7 @@ def discountfactor(spot, time, compounding):
         return (1 + spot / m) ** (-time * m)
 
 def forwardrate(spot1, spot2, time1, time2, compounding):
-    if compounding == 'Continous':
+    if compounding == 'Continuous':
         return (spot2 * time2 - spot1 * time1) / (time2 - time1)
     else:
         compoundmapping = {'Monthly':1,'Quarterly':4,'Semi-Annual':2,'Annual':1}
