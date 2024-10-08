@@ -111,6 +111,18 @@ class Swap:
         self.valuation = datetime.strptime(valuation, '%Y-%m-%d')
         self.compounding = compounding
     
+    def __repr__(self):
+        return (f"Swap(notional={self.notional}, fixed={self.fixed}, floating={self.floating}, "
+                f"maturity={self.maturity.strftime('%Y-%m-%d')}, frequency={self.frequency}, "
+                f"daycount={self.daycount}, valuation={self.valuation.strftime('%Y-%m-%d')}, "
+                f"compounding={self.compounding})")
+    
+    def __str__(self):
+        return (f"Swap with notional: {self.notional}, fixed rate: {self.fixed}, floating rate: {self.floating}, "
+                f"maturity date: {self.maturity.strftime('%Y-%m-%d')}, frequency: {self.frequency}, "
+                f"day count convention: {self.daycount}, valuation date: {self.valuation.strftime('%Y-%m-%d')}, "
+                f"compounding method: {self.compounding}")
+    
     def dates(self):    
         frequencymapping = {'Monthly':'M','Quarterly':'3M','Semi-Annual':'6M','Annual':'12M'}
         setdate = lambda x: datetime.strptime(x.strftime('%Y-%m') + '-' + str(self.maturity.day), '%Y-%m-%d')
@@ -130,7 +142,6 @@ class Swap:
     def nssparameters(self, initial = [0.01, 0, 0, 0.01, 2.0, 5.0]):
         ts = self.termstructure()
         return curve_fit(nelsonsiegelsvensson, ts['time'], ts['rate'], p0 = initial)[0]
-
 
     def forwardrates(self):
         params = self.nssparameters()
