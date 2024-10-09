@@ -101,6 +101,9 @@ def discountfactor(spot, time, compounding):
         m = compoundmapping[compounding]
         return (1 + spot / m) ** (-time * m)
 
+
+
+
 class InterestRateSwap:
 
     def __init__(self, notional, fixed, floating, maturity, frequency, daycount, valuation, compounding):
@@ -207,6 +210,12 @@ class InterestRateSwap:
         df['Present Value'] = df['Payment'] * df['Discount']
         return df
 
+
 check = InterestRateSwap(notional = 10000, fixed = 0.05, floating = 0.03, maturity = '2024-08-22', frequency = 'Quarterly', daycount = 'Actual/360', valuation = '2021-12-31', compounding = 'Continuous')
 print(check.fixedleg())
 print(check.floatleg())
+
+
+# Plot term sturcture and NSS curve
+# Plots and graphs
+# Valuation = fixed - float
