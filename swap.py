@@ -3,6 +3,8 @@ import numpy as np
 from datetime import datetime
 import ustreasurycurve as ustc
 from scipy.optimize import curve_fit
+import warnings
+import logging
 
 
 def isleapyear(year):
@@ -99,7 +101,7 @@ def discountfactor(spot, time, compounding):
         m = compoundmapping[compounding]
         return (1 + spot / m) ** (-time * m)
 
-class Swap:
+class InterestRateSwap:
 
     def __init__(self, notional, fixed, floating, maturity, frequency, daycount, valuation, compounding):
         self.notional = notional
@@ -110,15 +112,16 @@ class Swap:
         self.daycount = daycount
         self.valuation = datetime.strptime(valuation, '%Y-%m-%d')
         self.compounding = compounding
+        self.yieldcurveparams = self.nssparameters()
     
     def __repr__(self):
-        return (f"Swap(notional={self.notional}, fixed={self.fixed}, floating={self.floating}, "
+        return (f"InterestRateSwap(notional={self.notional}, fixed={self.fixed}, floating={self.floating}, "
                 f"maturity={self.maturity.strftime('%Y-%m-%d')}, frequency={self.frequency}, "
                 f"daycount={self.daycount}, valuation={self.valuation.strftime('%Y-%m-%d')}, "
                 f"compounding={self.compounding})")
     
     def __str__(self):
-        return (f"Swap with notional: {self.notional}, fixed rate: {self.fixed}, floating rate: {self.floating}, "
+        return (f"Interest Rate Swap with notional: {self.notional}, fixed rate: {self.fixed}, floating rate: {self.floating}, "
                 f"maturity date: {self.maturity.strftime('%Y-%m-%d')}, frequency: {self.frequency}, "
                 f"day count convention: {self.daycount}, valuation date: {self.valuation.strftime('%Y-%m-%d')}, "
                 f"compounding method: {self.compounding}")
@@ -130,24 +133,37 @@ class Swap:
         return [setdate(date) for date in period if setdate(date) > self.valuation]
 
     def decimaldates(self):
-        return [yeartime(date, self.valuation, convention = self.daycount) for date in self.dates]
+        return [yeartime(date, self.valuation, convention = self.daycount) for date in self.dates()]
     
     def termstructure(self):
         tenormapping = {'1m':1/12,'2m':1/6,'3m':0.25,'6m':0.5,'1y':1,'2y':2,'3y':3,'5y':5,'10y':10,'20y':20,'30y':30}
+        warnings.simplefilter("ignore", category=UserWarning)
         ts = ustc.nominalRates(date_start = self.valuation, date_end = self.valuation)
+        warnings.simplefilter("default", category=UserWarning)
         ts = ts.iloc[:,1:].melt(var_name = 'tenor', value_name = 'rate')
         ts['time'] = [tenormapping[tenor] for tenor in ts['tenor']]
         return ts[['tenor','time','rate']]
 
-    def nssparameters(self, initial = [0.01, 0, 0, 0.01, 2.0, 5.0]):
+    def nssparameters(self, initial = [0.03, -0.02, 0.01, 0.05, 2.0, 5.0]):
         ts = self.termstructure()
         return curve_fit(nelsonsiegelsvensson, ts['time'], ts['rate'], p0 = initial)[0]
 
+    def discountfactors(self):
+        params = self.yieldcurveparams
+        times = np.asarray(self.decimaldates(), dtype = float)
+        spots = np.asarray(nelsonsiegelsvensson(times, *params), dtype = float)
+
+        if self.compounding == 'Continuous':
+            return np.exp(-spots * times)
+        else:
+            compoundmapping = {'Monthly':1,'Quarterly':4,'Semi-Annual':2,'Annual':1}
+            m = compoundmapping[self.compounding]
+            return (1 + spots / m) ** (-times * m)
+
     def forwardrates(self):
-        params = self.nssparameters()
+        params = self.yieldcurveparams
         times = self.decimaldates()
         spots = nelsonsiegelsvensson(times, *params)
-
         forwards = []
 
         for i in range(len(times)):
@@ -164,3 +180,33 @@ class Swap:
                 forwards.append((m * (((1 + sj / m) ** tj) / ((1 + si / m) ** ti)) ** (1 / (tj - ti))) - m)
 
         return forwards
+
+    def fixedleg(self):
+        df = pd.DataFrame({
+            'Date':self.dates(),
+            'Time':self.decimaldates(),
+            'Fixed Rate':[self.fixed] * len(self.dates()),
+            'Payment':[self.fixed * self.notional] * len(self.dates()),
+            'Discount':self.discountfactors()
+        })
+        df.loc[df.index[-1], 'Fixed Rate'] = 1 + self.fixed
+        df.loc[df.index[-1], 'Payment'] = (1 + self.fixed) * self.notional
+        df['Present Value'] = df['Payment'] * df['Discount']
+        return df
+
+    def floatleg(self):
+        df = pd.DataFrame({
+            'Date':self.dates(),
+            'Time':self.decimaldates(),
+            'Floating Rate':[rate + self.floating for rate in self.forwardrates()],
+            'Payment':[(rate + self.floating) * self.notional for rate in self.forwardrates()],
+            'Discount':self.discountfactors()
+        })
+        df.loc[df.index[-1], 'Floating Rate'] = 1 + df.loc[df.index[-1], 'Floating Rate'] 
+        df.loc[df.index[-1], 'Payment'] = df.loc[df.index[-1], 'Floating Rate'] * self.notional
+        df['Present Value'] = df['Payment'] * df['Discount']
+        return df
+
+check = InterestRateSwap(notional = 10000, fixed = 0.05, floating = 0.03, maturity = '2024-08-22', frequency = 'Quarterly', daycount = 'Actual/360', valuation = '2021-12-31', compounding = 'Continuous')
+print(check.fixedleg())
+print(check.floatleg())
