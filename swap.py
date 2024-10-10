@@ -1,10 +1,14 @@
+# Swap.py
+
+
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from datetime import datetime
 import ustreasurycurve as ustc
 from scipy.optimize import curve_fit
 import warnings
-import logging
 
 
 def isleapyear(year):
@@ -118,16 +122,16 @@ class InterestRateSwap:
         self.yieldcurveparams = self.nssparameters()
     
     def __repr__(self):
-        return (f"InterestRateSwap(notional={self.notional}, fixed={self.fixed}, floating={self.floating}, "
-                f"maturity={self.maturity.strftime('%Y-%m-%d')}, frequency={self.frequency}, "
-                f"daycount={self.daycount}, valuation={self.valuation.strftime('%Y-%m-%d')}, "
-                f"compounding={self.compounding})")
+        return (f'InterestRateSwap(notional={self.notional}, fixed={self.fixed}, floating={self.floating}, '
+                f'maturity={self.maturity.strftime('%Y-%m-%d')}, frequency={self.frequency}, '
+                f'daycount={self.daycount}, valuation={self.valuation.strftime('%Y-%m-%d')}, '
+                f'compounding={self.compounding})')
     
     def __str__(self):
-        return (f"Interest Rate Swap with notional: {self.notional}, fixed rate: {self.fixed}, floating rate: {self.floating}, "
-                f"maturity date: {self.maturity.strftime('%Y-%m-%d')}, frequency: {self.frequency}, "
-                f"day count convention: {self.daycount}, valuation date: {self.valuation.strftime('%Y-%m-%d')}, "
-                f"compounding method: {self.compounding}")
+        return (f'Interest Rate Swap with notional: {self.notional}, fixed rate: {self.fixed}, floating rate: {self.floating}, '
+                f'maturity date: {self.maturity.strftime('%Y-%m-%d')}, frequency: {self.frequency}, '
+                f'day count convention: {self.daycount}, valuation date: {self.valuation.strftime('%Y-%m-%d')}, '
+                f'compounding method: {self.compounding}')
     
     def dates(self):    
         frequencymapping = {'Monthly':'M','Quarterly':'3M','Semi-Annual':'6M','Annual':'12M'}
@@ -140,12 +144,12 @@ class InterestRateSwap:
     
     def termstructure(self):
         tenormapping = {'1m':1/12,'2m':1/6,'3m':0.25,'6m':0.5,'1y':1,'2y':2,'3y':3,'5y':5,'10y':10,'20y':20,'30y':30}
-        warnings.simplefilter("ignore", category=UserWarning)
+        warnings.simplefilter('ignore', category = UserWarning)
         ts = ustc.nominalRates(date_start = self.valuation, date_end = self.valuation)
-        warnings.simplefilter("default", category=UserWarning)
+        warnings.simplefilter('default', category = UserWarning)
         ts = ts.iloc[:,1:].melt(var_name = 'tenor', value_name = 'rate')
         ts['time'] = [tenormapping[tenor] for tenor in ts['tenor']]
-        return ts[['tenor','time','rate']]
+        return ts[['tenor','time','rate']].dropna()
 
     def nssparameters(self, initial = [0.03, -0.02, 0.01, 0.05, 2.0, 5.0]):
         ts = self.termstructure()
@@ -210,12 +214,107 @@ class InterestRateSwap:
         df['Present Value'] = df['Payment'] * df['Discount']
         return df
 
+    def npv(self):
+        return self.fixedleg().loc[:,'Present Value'].sum() - self.floatleg().loc[:,'Present Value'].sum()
 
-check = InterestRateSwap(notional = 10000, fixed = 0.05, floating = 0.03, maturity = '2024-08-22', frequency = 'Quarterly', daycount = 'Actual/360', valuation = '2021-12-31', compounding = 'Continuous')
-print(check.fixedleg())
-print(check.floatleg())
+    # def plotcashflows(self):
+    #     fixed = self.fixedleg()
+    #     floating = self.floatleg()
 
+    #     df = pd.DataFrame({
+    #         'Date':[d.date() for d in fixed['Date']],
+    #         'Fixed':fixed['Payment'],
+    #         'Float':-floating['Payment']
+    #     })
+    #     print(df.info())
+    #     df.set_index('Date', inplace = True)
 
-# Plot term sturcture and NSS curve
-# Plots and graphs
-# Valuation = fixed - float
+    #     custom = {'axes.edgecolor': '#505258', 'grid.linestyle': 'dashed',
+    #            'grid.color': 'white', 'axes.facecolor': '#E8E9EB'}
+    #     sns.set_style('whitegrid', rc = custom)
+    #     plt.figure(figsize = (16,8))
+    #     df.plot(kind = 'bar', stacked = True, color = ['#1f77b4', '#ff7f0e'])
+    #     plt.title('Net Cash Flows')
+    #     plt.xlabel('Date')
+    #     plt.ylabel('Cash Flow')
+    #     plt.legend()
+    #     plt.show()
+
+    def plotyieldcurve(self):
+        params = self.yieldcurveparams
+        t = np.linspace(0.1, 30, 100)
+        line = nelsonsiegelsvensson(t, *params)
+        # ts = self.termstructure()
+
+        custom = {'axes.edgecolor': '#505258', 'grid.linestyle': 'dashed',
+               'grid.color': 'white', 'axes.facecolor': '#E8E9EB'}
+        sns.set_style('whitegrid', rc = custom)
+        plt.figure(figsize = (16,8))
+        # sns.scatterplot(x = ts['time'], y = ts['rate'], marker = 'o', linestyle = '', s = 75, color = '#4062BB')
+        sns.lineplot(x = t, y = line, linestyle = '-', linewidth = 2, color = '#4062BB')
+        plt.title(f'Yield Curve on Valuation Date ({self.valuation.date()})')
+        plt.xlabel('Maturity')
+        plt.ylabel('Rate')
+        plt.grid(True, axis = 'y')
+        plt.show()
+
+    def plotdiscountcurve(self):
+        params = self.yieldcurveparams
+        t = np.linspace(0.1, 30, 100)
+        spots = np.asarray(nelsonsiegelsvensson(t, *params), dtype = float)
+
+        if self.compounding == 'Continuous':
+            disc = np.exp(-spots * t)
+        else:
+            compoundmapping = {'Monthly':1,'Quarterly':4,'Semi-Annual':2,'Annual':1}
+            m = compoundmapping[self.compounding]
+            disc = (1 + spots / m) ** (-t * m)
+        
+        custom = {'axes.edgecolor': '#505258', 'grid.linestyle': 'dashed',
+               'grid.color': 'white', 'axes.facecolor': '#E8E9EB'}
+        sns.set_style('whitegrid', rc = custom)
+        plt.figure(figsize = (16,8))
+        sns.lineplot(x = t, y = disc, linestyle = '-', linewidth = 2, color = '#04E762')
+        plt.title(f'Discount Rate Curve on Valuation Date ({self.valuation.date()})')
+        plt.xlabel('Maturity')
+        plt.ylabel('Discount Rate')
+        plt.show()
+
+    def plotforwardcurve(self):
+        params = self.yieldcurveparams
+        t = np.linspace(0.1, 30, 100)
+        spots = nelsonsiegelsvensson(t, *params)
+        forwards = []
+
+        for i in range(len(t)):
+            ti = t[i]
+            si = spots[i]
+            tj = ti + 1
+            sj = nelsonsiegelsvensson(tj, *params)  # One-year lending rate
+
+            if self.compounding == 'Continuous':
+                forwards.append((sj * tj - si * ti) / (tj - ti))
+            else:
+                compoundmapping = {'Monthly':1,'Quarterly':4,'Semi-Annual':2,'Annual':1}
+                m = compoundmapping[self.compounding]
+                forwards.append((m * (((1 + sj / m) ** tj) / ((1 + si / m) ** ti)) ** (1 / (tj - ti))) - m)
+        
+        custom = {'axes.edgecolor': '#505258', 'grid.linestyle': 'dashed',
+               'grid.color': 'white', 'axes.facecolor': '#E8E9EB'}
+        sns.set_style('whitegrid', rc = custom)
+        plt.figure(figsize = (16,8))
+        sns.lineplot(x = t, y = forwards, linestyle = '-', linewidth = 2, color =  '#F5B700')
+        plt.title(f'Forward Rate Curve on Valuation Date ({self.valuation.date()})')
+        plt.xlabel('Maturity')
+        plt.ylabel('Forward Rate')
+        plt.show()
+
+        
+# IRS = InterestRateSwap(notional = 10000, fixed = 0.05, floating = 0.03, 
+#                  maturity = '2020-08-22', frequency = 'Semi-Annual', daycount = 'Actual/360', valuation = '2008-06-13', 
+#                  compounding = 'Continuous'
+#                 )
+
+# IRS.plotcashflows()
+# Plots and graphs  - stacked bar: +fixed -float 
+# business day
