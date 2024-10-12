@@ -138,9 +138,13 @@ class InterestRateSwap:
         setdate = lambda x: datetime.strptime(x.strftime('%Y-%m') + '-' + str(self.maturity.day), '%Y-%m-%d')
         period = pd.period_range(end = self.maturity, periods = 1000, freq = frequencymapping[self.frequency])
         return [setdate(date) for date in period if setdate(date) > self.valuation]
+    
+    def businessdates(self):
+        period = pd.Series(self.dates())
+        return period.apply(lambda date: date if date in pd.bdate_range(date,date) else date + pd.tseries.offsets.BDay(1))
 
     def decimaldates(self):
-        return [yeartime(date, self.valuation, convention = self.daycount) for date in self.dates()]
+        return [yeartime(date, self.valuation, convention = self.daycount) for date in self.businessdates()]
     
     def termstructure(self):
         tenormapping = {'1m':1/12,'2m':1/6,'3m':0.25,'6m':0.5,'1y':1,'2y':2,'3y':3,'5y':5,'10y':10,'20y':20,'30y':30}
@@ -190,7 +194,7 @@ class InterestRateSwap:
 
     def fixedleg(self):
         df = pd.DataFrame({
-            'Date':self.dates(),
+            'Date':self.businessdates(),
             'Time':self.decimaldates(),
             'Fixed Rate':[self.fixed] * len(self.dates()),
             'Payment':[self.fixed * self.notional] * len(self.dates()),
@@ -203,7 +207,7 @@ class InterestRateSwap:
 
     def floatleg(self):
         df = pd.DataFrame({
-            'Date':self.dates(),
+            'Date':self.businessdates(),
             'Time':self.decimaldates(),
             'Floating Rate':[rate + self.floating for rate in self.forwardrates()],
             'Payment':[(rate + self.floating) * self.notional for rate in self.forwardrates()],
@@ -217,28 +221,25 @@ class InterestRateSwap:
     def npv(self):
         return self.fixedleg().loc[:,'Present Value'].sum() - self.floatleg().loc[:,'Present Value'].sum()
 
-    # def plotcashflows(self):
-    #     fixed = self.fixedleg()
-    #     floating = self.floatleg()
+    def plotcashflows(self):
+        fixed = self.fixedleg()
+        floating = self.floatleg()
 
-    #     df = pd.DataFrame({
-    #         'Date':[d.date() for d in fixed['Date']],
-    #         'Fixed':fixed['Payment'],
-    #         'Float':-floating['Payment']
-    #     })
-    #     print(df.info())
-    #     df.set_index('Date', inplace = True)
+        df = pd.merge(fixed, floating, on = 'Date', suffixes = ('_fixed', '_floating'))
+        df['Net Cash Flow'] = df['Present Value_fixed'] - df['Present Value_floating']
 
-    #     custom = {'axes.edgecolor': '#505258', 'grid.linestyle': 'dashed',
-    #            'grid.color': 'white', 'axes.facecolor': '#E8E9EB'}
-    #     sns.set_style('whitegrid', rc = custom)
-    #     plt.figure(figsize = (16,8))
-    #     df.plot(kind = 'bar', stacked = True, color = ['#1f77b4', '#ff7f0e'])
-    #     plt.title('Net Cash Flows')
-    #     plt.xlabel('Date')
-    #     plt.ylabel('Cash Flow')
-    #     plt.legend()
-    #     plt.show()
+        custom = {'axes.edgecolor': '#505258', 'grid.linestyle': 'dashed',
+               'grid.color': 'white', 'axes.facecolor': '#E8E9EB'}
+        sns.set_style('whitegrid', rc = custom)
+        plt.figure(figsize = (16, 8))
+        plt.bar(df['Date'], df['Present Value_fixed'], label = 'Fixed Leg', color = '#4062BB', width = 300, align = 'center')
+        plt.bar(df['Date'], -df['Present Value_floating'], label = 'Floating Leg', color = '#04E762', width = 300, align = 'center')
+        plt.plot(df['Date'], df['Net Cash Flow'].cumsum(), color = 'red', marker = 'o', label = 'Net Cash Flow')
+        plt.xlabel('Date')
+        plt.ylabel('Present Value')
+        plt.title('Fixed vs Floating Leg Cash Flows with Net Present Value of Cash Flows')
+        plt.legend(loc = 'lower center', ncol = 3, bbox_to_anchor = (0.5,-0.15), frameon = False)
+        plt.show()
 
     def plotyieldcurve(self):
         params = self.yieldcurveparams
